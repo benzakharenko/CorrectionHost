@@ -1,0 +1,8 @@
+build/
+build-*/
+.vs/
+out/
+build-mac/
+build-mac-log.txt
+*.zip
+CLAUDE.local.md

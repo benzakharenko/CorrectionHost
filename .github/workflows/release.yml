@@ -1,0 +1,129 @@
+# Builds Correction Host for Windows and macOS on every push to main and publishes
+# them as a GitHub release ("build-N"). Installed copies of the app check the latest
+# release and update themselves when the audio has been quiet for a couple of minutes.
+#
+# Only pushes to main (and manual runs) publish. Pull requests never run this, so
+# nobody else can ship an update.
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'Resources/src/**'
+      - '.gitignore'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  BUILD_NUMBER: ${{ github.run_number }}
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -A x64 "-DCORRECTIONHOST_BUILD_NUMBER=${{ env.BUILD_NUMBER }}" "-DCORRECTIONHOST_UPDATE_REPO=${{ github.repository }}"
+
+      - name: Build
+        run: cmake --build build --config Release --target CorrectionHost --parallel
+
+      - name: Package
+        shell: pwsh
+        run: Compress-Archive -Path "build/CorrectionHost_artefacts/Release/Correction Host.exe" -DestinationPath CorrectionHost-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: CorrectionHost-windows.zip
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "Configure (universal: Apple silicon + Intel)"
+        run: >
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
+          "-DCORRECTIONHOST_BUILD_NUMBER=${{ env.BUILD_NUMBER }}"
+          "-DCORRECTIONHOST_UPDATE_REPO=${{ github.repository }}"
+
+      - name: Build
+        run: cmake --build build --config Release --target CorrectionHost -j "$(sysctl -n hw.ncpu)"
+
+      - name: Sign
+        # With a stable signing identity (see packaging/README.md) macOS remembers the
+        # microphone permission across updates. Without one, the app is signed ad hoc and
+        # macOS asks for the permission again after each update.
+        env:
+          SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12 }}
+          SIGNING_PASSWORD: ${{ secrets.MACOS_SIGNING_PASSWORD }}
+        run: |
+          set -euo pipefail
+          APP="build/CorrectionHost_artefacts/Release/Correction Host.app"
+          if [ -n "${SIGNING_P12}" ]; then
+            KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+            security create-keychain -p ci "$KEYCHAIN"
+            security set-keychain-settings "$KEYCHAIN"
+            security unlock-keychain -p ci "$KEYCHAIN"
+            echo "$SIGNING_P12" | base64 --decode > "$RUNNER_TEMP/identity.p12"
+            security import "$RUNNER_TEMP/identity.p12" -k "$KEYCHAIN" -P "$SIGNING_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple: -s -k ci "$KEYCHAIN" > /dev/null
+            security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+            sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain packaging/macos-signing-cert.pem
+            codesign --force --deep --keychain "$KEYCHAIN" --sign "Correction Host Signing" "$APP"
+            rm -f "$RUNNER_TEMP/identity.p12"
+          else
+            codesign --force --deep --sign - "$APP"
+          fi
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dr - "$APP"
+          lipo -info "$APP/Contents/MacOS/Correction Host"
+
+      - name: Package
+        run: ditto -c -k --keepParent "build/CorrectionHost_artefacts/Release/Correction Host.app" CorrectionHost-macos.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: CorrectionHost-macos.zip
+          if-no-files-found: error
+
+  release:
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          TAG="build-${BUILD_NUMBER}"
+          NOTES="${COMMIT_MESSAGE:-Manual build}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.zip --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" dist/*.zip --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "Build ${BUILD_NUMBER}" --notes "$NOTES" --latest
+          fi
