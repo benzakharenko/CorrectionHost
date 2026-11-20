@@ -46,15 +46,55 @@ namespace
     const char* oldMacBundleName = "Correction Host (previous version).app";
    #endif
 
-    std::unique_ptr<juce::InputStream> openGitHub (const juce::String& url, int timeoutMs)
+    /** Opens a GitHub URL; returns nullptr (and an explanation) unless it answers 200. */
+    std::unique_ptr<juce::InputStream> openGitHub (const juce::String& url, int timeoutMs, juce::String& error)
     {
+        int status = 0;
         const auto options = juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
                                  .withExtraHeaders ("Accept: application/vnd.github+json\r\n"
                                                     "User-Agent: CorrectionHost-updater\r\n")
                                  .withConnectionTimeoutMs (timeoutMs)
-                                 .withNumRedirectsToFollow (8);
+                                 .withNumRedirectsToFollow (8)
+                                 .withStatusCode (&status);
 
-        return juce::URL (url).createInputStream (options);
+        auto stream = juce::URL (url).createInputStream (options);
+
+        if (stream == nullptr)
+        {
+            error = "no connection (HTTP status " + juce::String (status) + ")";
+            return nullptr;
+        }
+
+        if (status != 200)
+        {
+            error = "GitHub answered HTTP " + juce::String (status);
+            return nullptr;
+        }
+
+        return stream;
+    }
+
+    juce::File updaterLogFile()
+    {
+       #if JUCE_MAC
+        return juce::File::getSpecialLocation (juce::File::userHomeDirectory).getChildFile ("Library/Logs/CorrectionHost/updater.log");
+       #else
+        return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("CorrectionHost/updater.log");
+       #endif
+    }
+
+    void writeLog (const juce::String& line)
+    {
+        static juce::CriticalSection logLock;
+        const juce::ScopedLock sl (logLock);
+
+        const auto f = updaterLogFile();
+        f.getParentDirectory().createDirectory();
+
+        if (f.getSize() > 256 * 1024)
+            f.deleteFile();
+
+        f.appendText (juce::Time::getCurrentTime().formatted ("%Y-%m-%d %H:%M:%S") + "  " + line + "\n");
     }
 }
 
@@ -174,6 +214,9 @@ Updater::Updater (Options o)
 
     if (enabled)
     {
+        writeLog ("started build " + juce::String (options.currentBuild) + " from "
+                  + juce::File::getSpecialLocation (juce::File::currentExecutableFile).getFullPathName()
+                  + ", updating from github.com/" + options.repo);
         statusText = "build " + juce::String (options.currentBuild) + ", checking for updates soon";
         nextCheckTime = nowSeconds() + firstCheckDelaySeconds;
         startTimer (5000);
@@ -212,6 +255,9 @@ void Updater::checkIfStale (double maxAgeSeconds)
 
 void Updater::setStatus (State newState, const juce::String& text)
 {
+    if (enabled)
+        writeLog (text);
+
     {
         const juce::ScopedLock sl (lock);
         state = newState;
@@ -255,12 +301,13 @@ void Updater::run()
 
     juce::String json;
     {
-        auto stream = openGitHub ("https://api.github.com/repos/" + options.repo + "/releases/latest", 15000);
+        juce::String error;
+        auto stream = openGitHub ("https://api.github.com/repos/" + options.repo + "/releases/latest", 15000, error);
 
         if (stream == nullptr)
         {
             nextCheckTime = nowSeconds() + retryAfterFailure;
-            setStatus (State::failed, currentText + ", couldn't reach GitHub to check for updates (will retry)");
+            setStatus (State::failed, currentText + ", couldn't check for updates: " + error + " (will retry)");
             return;
         }
 
@@ -276,6 +323,8 @@ void Updater::run()
         setStatus (State::failed, currentText + ", update check failed: " + parsed.getErrorMessage());
         return;
     }
+
+    writeLog ("latest release is " + info.tag + (info.sha256.isNotEmpty() ? " (with checksum)" : " (no checksum)"));
 
     if (info.build <= options.currentBuild)
     {
@@ -318,9 +367,10 @@ juce::Result Updater::downloadAndUnpack (const ReleaseInfo& info, juce::File& pa
     const auto zip = workDir.getChildFile (getAssetName());
 
     {
-        auto in = openGitHub (info.assetUrl, 30000);
+        juce::String error;
+        auto in = openGitHub (info.assetUrl, 30000, error);
         if (in == nullptr)
-            return juce::Result::fail ("download didn't start");
+            return juce::Result::fail ("download didn't start: " + error);
 
         juce::FileOutputStream out (zip);
         if (! out.openedOk())
@@ -471,6 +521,8 @@ void Updater::install()
         setStatus (State::failed, "build " + juce::String (info.build) + " is installed; restart Correction Host to use it");
         return;
     }
+
+    writeLog ("launched build " + juce::String (info.build) + ", quitting build " + juce::String (options.currentBuild));
 
     // The new copy waits for this process to exit before it starts its audio.
     juce::JUCEApplicationBase::quit();

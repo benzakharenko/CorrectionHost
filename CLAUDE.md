@@ -122,6 +122,10 @@ running if the last check was over 10 min ago:
    devices.
 5. Leftovers are deleted at the next startup.
 
+Every step is logged to `%APPDATA%\CorrectionHost\updater.log` (Windows) or
+`~/Library/Logs/CorrectionHost/updater.log` (macOS), including HTTP status codes.
+Check there first when a machine doesn't update.
+
 Installers (first install only): `install/install-windows.ps1` (or the `.bat`
 wrapper) installs to `%LOCALAPPDATA%\Programs\Correction Host` and adds a Start menu
 shortcut. `install/install-mac.sh` installs to `/Applications` (or `~/Applications`).

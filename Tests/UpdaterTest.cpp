@@ -30,8 +30,23 @@ namespace
     })";
 }
 
-int main()
+int main (int argc, char** argv)
 {
+    // Optional: parse a real GitHub response saved to a file, e.g.
+    //   curl -s https://api.github.com/repos/OWNER/REPO/releases/latest > latest.json
+    //   UpdaterTest latest.json
+    if (argc > 1)
+    {
+        for (auto name : { "CorrectionHost-windows.zip", "CorrectionHost-macos.zip" })
+        {
+            Updater::ReleaseInfo info;
+            const auto r = Updater::parseRelease (juce::File (juce::String (argv[1])).loadFileAsString(), name, info);
+            std::cout << name << ": " << (r.wasOk() ? juce::String ("ok") : r.getErrorMessage())
+                      << ", build " << info.build << ", sha256 " << info.sha256 << "\n  " << info.assetUrl << "\n";
+        }
+        return 0;
+    }
+
     std::cout << "Build numbers\n";
     check (Updater::parseBuildNumber ("build-42") == 42, "build-42 -> 42");
     check (Updater::parseBuildNumber (" build-7 ") == 7, "whitespace tolerated");
