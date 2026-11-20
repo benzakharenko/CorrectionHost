@@ -40,6 +40,10 @@ public:
     /** Checks now instead of waiting for the next scheduled check. */
     void checkNow();
 
+    /** Checks now if the last check was more than this long ago (e.g. when the app is
+        opened again from the Start menu or Finder). */
+    void checkIfStale (double maxAgeSeconds);
+
     //==============================================================================
     /** True if this build was made with update support (non-zero build number and a repo). */
     static bool isUpdatableBuild();
@@ -90,7 +94,8 @@ private:
     juce::File pendingPayload;
     juce::File workDir;
 
-    std::atomic<double> nextCheckTime { 0.0 };   // Time::getMillisecondCounterHiRes() based, seconds
+    std::atomic<double> nextCheckTime { 0.0 };
+    std::atomic<double> lastCheckTime { 0.0 };   // Time::getMillisecondCounterHiRes() based, seconds
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Updater)
 };

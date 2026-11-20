@@ -18,6 +18,8 @@ This is not an Apple Developer ID. It doesn't notarise the app, and Gatekeeper s
 treats a *browser-downloaded* copy as unidentified. The install script and the
 updater download with tools that don't add the quarantine flag, so that never comes up.
 
-To replace the identity, make a new self-signed code-signing certificate, export it as
-a .p12 in the legacy (3DES/SHA1) format macOS can import, update both secrets and
-commit the new public certificate here. macOS will ask for the microphone once more.
+**To set it up (or replace it),** run `bash packaging/make-mac-signing-identity.sh`
+from the repo root. You need openssl (Git Bash on Windows has it) and `gh auth login`.
+The script creates the identity, stores both secrets, and writes the new public
+certificate here. Commit and push that file. macOS asks for the microphone once more
+after that update, then remembers it.

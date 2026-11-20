@@ -204,6 +204,12 @@ void Updater::checkNow()
         nextCheckTime = 0.0;
 }
 
+void Updater::checkIfStale (double maxAgeSeconds)
+{
+    if (lastCheckTime.load() > 0.0 && nowSeconds() - lastCheckTime.load() > maxAgeSeconds)
+        checkNow();
+}
+
 void Updater::setStatus (State newState, const juce::String& text)
 {
     {
@@ -228,6 +234,7 @@ void Updater::timerCallback()
     if ((s == State::idle || s == State::failed) && nowSeconds() >= nextCheckTime && ! isThreadRunning())
     {
         nextCheckTime = nowSeconds() + checkIntervalSeconds;
+        lastCheckTime = nowSeconds();
         setStatus (State::working, "build " + juce::String (options.currentBuild) + ", checking for updates...");
         startThread (juce::Thread::Priority::low);
         return;

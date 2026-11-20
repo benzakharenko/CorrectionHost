@@ -258,6 +258,10 @@ public:
     void anotherInstanceStarted (const juce::String&) override
     {
         showWindow();
+
+        // Opening the app again (Start menu, Finder) is a good moment to look for updates.
+        if (updater != nullptr)
+            updater->checkIfStale (10.0 * 60.0);
     }
 
     void showWindow()

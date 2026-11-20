@@ -105,8 +105,9 @@ the public repo). Read it if it exists.
    survives updates).
 3. **ubuntu:** creates release `build-N` with both zips and marks it latest.
 
-The app (`Updater`) checks `releases/latest` 45 s after launch and every 6 h, plus from
-the tray's "Check for updates":
+The app (`Updater`) checks `releases/latest` 45 s after launch and every 6 h. It also
+checks from the tray's "Check for updates", and when the app is opened again while
+running if the last check was over 10 min ago:
 
 1. Downloads the platform zip and verifies GitHub's SHA-256 asset digest.
 2. Unpacks it (`ZipFile` on Windows, `ditto` on macOS).
@@ -124,5 +125,8 @@ the tray's "Check for updates":
 Installers (first install only): `install/install-windows.ps1` (or the `.bat`
 wrapper) installs to `%LOCALAPPDATA%\Programs\Correction Host` and adds a Start menu
 shortcut. `install/install-mac.sh` installs to `/Applications` (or `~/Applications`).
+Both take `CORRECTIONHOST_TAG=build-N` to install a specific build, which is how you
+roll back (`install-windows.bat N`). The app then carries on updating to newer builds,
+so to stay rolled back, revert on `main` instead.
 Settings live in the per-user app-data folder and are shared by all copies on a
 machine.

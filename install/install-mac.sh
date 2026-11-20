@@ -4,6 +4,9 @@
 #
 # Run in Terminal:
 #   curl -fsSL https://raw.githubusercontent.com/benzakharenko/CorrectionHost/main/install/install-mac.sh | bash
+#
+# To install a specific build instead of the latest (e.g. to roll back):
+#   curl -fsSL .../install-mac.sh | CORRECTIONHOST_TAG=build-3 bash
 set -euo pipefail
 
 REPO="${CORRECTIONHOST_REPO:-benzakharenko/CorrectionHost}"
@@ -19,8 +22,13 @@ APP="$DEST/Correction Host.app"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-echo "Downloading the latest Correction Host from github.com/$REPO ..."
-curl -fL --progress-bar -o "$TMP/app.zip" "https://github.com/$REPO/releases/latest/download/CorrectionHost-macos.zip"
+if [ -n "${CORRECTIONHOST_TAG:-}" ]; then
+    URL="https://github.com/$REPO/releases/download/$CORRECTIONHOST_TAG/CorrectionHost-macos.zip"
+else
+    URL="https://github.com/$REPO/releases/latest/download/CorrectionHost-macos.zip"
+fi
+echo "Downloading Correction Host (${CORRECTIONHOST_TAG:-latest}) from github.com/$REPO ..."
+curl -fL --progress-bar -o "$TMP/app.zip" "$URL"
 ditto -x -k "$TMP/app.zip" "$TMP/unpacked"
 
 if pgrep -x "Correction Host" > /dev/null; then
